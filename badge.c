@@ -124,66 +124,102 @@ void show(void)
           [lo]    "r"  (lo));
 }
 
+static uint16_t boop_baseline = 0;
+
+/*
+ * Read the boop sensor, subtracting the baseline if one has been set.
+ */
+uint16_t boop_sense (void)
+{
+    uint16_t fall_time = 0;
+
+    /* Set the driven pin high */
+    PORTB |= (1 << 1);
+    _delay_ms (10);
+
+    /* Set the driven pin low */
+    PORTB &= ~(1 << 1);
+
+    /* Time the falling edge, in loops */
+    while (PINB & 0x01)
+    {
+        fall_time++;
+    }
+
+    if (fall_time < boop_baseline)
+    {
+        fall_time = boop_baseline;
+    }
+
+    return fall_time - boop_baseline;
+}
+
+/*
+ * Get a baseline non-boop reading to subtract from future readings.
+ */
+void boop_calibrate (void)
+{
+    uint16_t boop_sum = 0;
+    for (int i = 0; i < 10; i++)
+    {
+        boop_sum += boop_sense ();
+        _delay_ms (50);
+    }
+
+    boop_baseline = boop_sum / 10;
+}
+
+#define MODE_COUNT 3;
+
 int main (void)
 {
-    int cycle = 0;
-    _delay_ms (100);
+    uint16_t boop_holdoff = 0;
+    uint8_t  mode = 0;
+
+    _delay_ms (10);
     show ();
 
-    /* LED data */
+    /* Output: LED data */
+    DDRB |= (1 << DDB1);
     DDRB |= (1 << DDB4);
+
+    boop_calibrate ();
 
     while (true)
     {
         memset (pixels, 0, 6);
 
-        switch (cycle)
+        if (boop_holdoff)
         {
-            case 0: /* Red */
-                pixels[LEFT_R] = pixels[RIGHT_R] = 0x10;
+            boop_holdoff--;
+        }
+        else
+        {
+            if (boop_sense () > 0x02)
+            {
+                mode = (mode + 1) % MODE_COUNT;
+                boop_holdoff = 8;
+            }
+        }
+
+        switch (mode)
+        {
+            case 0: /* Mode 0: Red */
+                pixels [LEFT_R] = pixels [RIGHT_R] = 0x08;
                 break;
-            case 1: /* Green */
-                pixels[LEFT_G] = pixels[RIGHT_G] = 0x10;
+
+            case 1: /* Mode 1: Green */
+                pixels [LEFT_G] = pixels [RIGHT_G] = 0x08;
                 break;
-            case 2: /* Blue */
-                pixels[LEFT_B] = pixels[RIGHT_B] = 0x10;
-                break;
-            case 3: /* Cyan */
-                pixels[LEFT_G] = pixels[RIGHT_G] = 0x10;
-                pixels[LEFT_B] = pixels[RIGHT_B] = 0x10;
-                break;
-            case 4: /* Magenta */
-                pixels[LEFT_R] = pixels[RIGHT_R] = 0x10;
-                pixels[LEFT_B] = pixels[RIGHT_B] = 0x10;
-                break;
-            case 5: /* Yellow */
-                pixels[LEFT_R] = pixels[RIGHT_R] = 0x10;
-                pixels[LEFT_G] = pixels[RIGHT_G] = 0x10;
-                break;
-            case 6: /* White */
-                pixels[LEFT_R] = pixels[RIGHT_R] = 0x10;
-                pixels[LEFT_G] = pixels[RIGHT_G] = 0x10;
-                pixels[LEFT_B] = pixels[RIGHT_B] = 0x10;
-                break;
-            case 7: /* Off */
-            case 15:
-                break;
-            case 8: /* Red-Blue */
-            case 10:
-            case 12:
-            case 14:
-                pixels[LEFT_R] = pixels[RIGHT_B] = 0x10;
-                break;
-            case 9: /* Blue-Red */
-            case 11:
-            case 13:
-                pixels[LEFT_B] = pixels[RIGHT_R] = 0x10;
+
+            case 2: /* Mode 2: Blue */
+            default:
+                pixels [LEFT_B] = pixels [RIGHT_B] = 0x08;
                 break;
         }
 
         show ();
 
-        cycle = (cycle + 1) % 16;
-        _delay_ms (500);
+        _delay_ms (50);
     }
 }
