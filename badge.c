@@ -8,6 +8,7 @@
  *
  *  Implementation: Borrow the hand-tuned assembler from Adafruit_NeoPixel.cpp
  */
+
 #define F_CPU 8000000UL
 
 #include <stdbool.h>
@@ -15,6 +16,10 @@
 #include <string.h>
 #include <avr/io.h>
 #include <util/delay.h>
+
+#include "rgb.h"
+#include "hsv2rgb.h"
+#include "led_bitbang.h"
 
 #define LEFT 0
 #define LEFT_G 0
@@ -27,104 +32,6 @@
 #define RIGHT_B 5
 
 uint8_t pixels[6] = {0, 0, 0, 0, 0, 0};
-
-/* NeoPixel 8 MHz implementation based on github.com/adafruit/Adafruit_NeoPixel (LGPLv3) */
-void led_show(void)
-{
-    volatile uint16_t num_bytes = 6;
-    volatile uint8_t *ptr = pixels;
-    volatile uint8_t b = *ptr++; /* Current byte value */
-    volatile uint8_t hi; /* PORTB with output bit set high */
-    volatile uint8_t lo; /* PORTB with output bit set low */
-    volatile uint8_t n1 = 0; /* First bit out */
-    volatile uint8_t n2 = 0; /* Next bit out */
-
-    hi = PORTB |  0x10;
-    lo = PORTB & ~0x10;
-
-    /* Set up the first bit out */
-    n1 = (b & 0x80) ? hi : lo;
-
-    /* Ten instruction clocks per bit: HH_____LLL.
-     * Out instructions: T=0, T=2, T=7 ^ ^    ^
-     */
-    asm volatile (
-        "headB:                         \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n2],      %[lo]       \n\t"
-        "out    %[port],    %[n1]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    6           \n\t"
-        "mov    %[n2],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n1],      %[lo]       \n\t"
-        "out    %[port],    %[n2]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    5           \n\t"
-        "mov    %[n1],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n2],      %[lo]       \n\t"
-        "out    %[port],    %[n1]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    4           \n\t"
-        "mov    %[n2],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n1],      %[lo]       \n\t"
-        "out    %[port],    %[n2]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    3           \n\t"
-        "mov    %[n1],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n2],      %[lo]       \n\t"
-        "out    %[port],    %[n1]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    2           \n\t"
-        "mov    %[n2],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n1],      %[lo]       \n\t"
-        "out    %[port],    %[n2]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    1           \n\t"
-        "mov    %[n1],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n2],      %[lo]       \n\t"
-        "out    %[port],    %[n1]       \n\t"
-        "rjmp   .+0                     \n\t"
-        "sbrc   %[byte],    0           \n\t"
-        "mov    %[n2],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "sbiw   %[count],   1           \n\t"
-        "out    %[port],    %[hi]       \n\t"
-        "mov    %[n1],      %[lo]       \n\t"
-        "out    %[port],    %[n2]       \n\t"
-        "ld     %[byte],    %a[ptr]+    \n\t"
-        "sbrc   %[byte],    7           \n\t"
-        "mov    %[n1],      %[hi]       \n\t"
-        "out    %[port],    %[lo]       \n\t"
-        "brne   headB                     \n"
-        /* Read-write variables */
-        : [byte]  "+r" (b),
-          [n1]    "+r" (n1),
-          [n2]    "+r" (n2),
-          [count] "+w" (num_bytes)
-        /* Read-only variables */
-        : [port]  "I"  (_SFR_IO_ADDR(PORTB)),
-          [ptr]   "e"  (ptr),
-          [hi]    "r"  (hi),
-          [lo]    "r"  (lo));
-}
 
 static uint16_t boop_baseline = 0;
 
@@ -184,82 +91,6 @@ void tick_sound (void)
 }
 
 /*
- * RGB struct stores colours in NeoPixel order.
- */
-typedef struct RGB_s {
-    union {
-        uint8_t g;
-        uint8_t green;
-    };
-    union {
-        uint8_t r;
-        uint8_t red;
-    };
-    union {
-        uint8_t b;
-        uint8_t blue;
-    };
-} RGB_t;
-
-#define HSV_SECTION_6 (0x20)
-#define HSV_SECTION_3 (0x40)
-
-/*
- * HSV to RGB implementation based on https://github.com/FastLED/FastLED (MIT)
- *
- * Hue rages from 0-191
- *
- * TODO: Switch to the rainbow implementation.
- */
-void hsv2rgb (uint8_t hue, uint8_t sat, uint8_t val, RGB_t *rgb)
-{
-    /* The brightness floor is minimum number that all of
-     * R, G, and B will be set to. */
-    uint8_t invsat = 255 - sat;
-    uint8_t brightness_floor = (val * invsat) / 256;
-
-    /* The colour amplitude is the maximum amount of R, G, and B
-     * that will be added on top of the brightness_floor to
-     * create the specific hue desired. */
-    uint8_t color_amplitude = val - brightness_floor;
-
-    /* Figure out which section of the hue wheel we're in,
-     * and how far offset we are withing that section */
-    uint8_t section = hue / HSV_SECTION_3; /* 0..2 */
-    uint8_t offset = hue % HSV_SECTION_3;  /* 0..63 */
-
-    uint8_t rampup = offset; /* 0..63 */
-    uint8_t rampdown = (HSV_SECTION_3 - 1) - offset; /* 63..0 */
-
-    /* compute color-amplitude-scaled-down versions of rampup and rampdown */
-    uint8_t rampup_amp_adj   = (rampup   * color_amplitude) / (256 / 4);
-    uint8_t rampdown_amp_adj = (rampdown * color_amplitude) / (256 / 4);
-
-    /* add brightness_floor offset to everything */
-    uint8_t rampup_adj_with_floor   = rampup_amp_adj   + brightness_floor;
-    uint8_t rampdown_adj_with_floor = rampdown_amp_adj + brightness_floor;
-
-    if( section ) {
-        if( section == 1) {
-            /* section 1: 0x40..0x7F */
-            rgb->r = brightness_floor;
-            rgb->g = rampdown_adj_with_floor;
-            rgb->b = rampup_adj_with_floor;
-        } else {
-            /* section 2; 0x80..0xBF */
-            rgb->r = rampup_adj_with_floor;
-            rgb->g = brightness_floor;
-            rgb->b = rampdown_adj_with_floor;
-        }
-    } else {
-        /* section 0: 0x00..0x3F */
-        rgb->r = rampdown_adj_with_floor;
-        rgb->g = rampup_adj_with_floor;
-        rgb->b = brightness_floor;
-    }
-}
-
-/*
  * Update the LED pattern for the current state.
  */
 #define FRAME_OF_32  (frame & 0x1f)
@@ -287,15 +118,14 @@ void tick_leds (void)
                 value = 0x10 - (frame - 0x10);
             }
 
-            hsv2rgb (144, 0xff, value + 1, &rgb);
+            hsv2rgb_rainbow (192, 0xff, value + 1, &rgb);
             memcpy (&pixels [LEFT],  &rgb, 3);
             memcpy (&pixels [RIGHT], &rgb, 3);
             break;
 
         case 1: /* Mode 1: Rainbow */
-            frame = FRAME_OF_192;
 
-            hsv2rgb(frame, 0xff, 0x10, &rgb);
+            hsv2rgb_rainbow (frame, 0xff, 0x10, &rgb);
             memcpy (&pixels [LEFT],  &rgb, 3);
             memcpy (&pixels [RIGHT], &rgb, 3);
             break;
@@ -316,7 +146,7 @@ void tick_leds (void)
 
     frame++;
 
-    led_show ();
+    led_show (pixels);
 }
 
 /*
@@ -358,7 +188,7 @@ void tick ()
 int main (void)
 {
     _delay_ms (10);
-    led_show ();
+    led_show (pixels);
 
     /* Output: Boop driver */
     DDRB |= (1 << DDB1);

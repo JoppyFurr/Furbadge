@@ -3,7 +3,7 @@
 # Furry Badge
 
 # Compile
-avr-gcc -g -Os -Wall -mcall-prologues -mmcu=attiny85 badge.c -o badge.obj || exit
+avr-gcc -g -Os -Wall -mcall-prologues -mmcu=attiny85 *.c -o badge.obj || exit
 
 # Generate .hex
 avr-objcopy -R .eeprom -O ihex badge.obj badge.hex || exit
