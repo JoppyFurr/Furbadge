@@ -102,10 +102,37 @@ void tick_sound (void)
 #define BOOP_64_FRAMES      if (frame == 0x3f) { boop = false; frame = 0; }
 #define BOOP_128_FRAMES     if (frame == 0x7f) { boop = false; frame = 0; }
 
+typedef enum Eye_e {
+    EYE_LEFT,
+    EYE_RIGHT,
+    EYE_BOTH
+} Eye_t;
+
+void eye_hsv_set (uint8_t hue, uint8_t sat, uint8_t val, Eye_t eye)
+{
+    RGB_t rgb;
+
+    hsv2rgb_rainbow (hue, sat, val, &rgb);
+
+    switch (eye)
+    {
+        case EYE_LEFT:
+            memcpy (&pixels [LEFT],  &rgb, 3);
+            break;
+        case EYE_RIGHT:
+            memcpy (&pixels [RIGHT], &rgb, 3);
+            break;
+        case EYE_BOTH:
+            memcpy (&pixels [LEFT],  &rgb, 3);
+            memcpy (&pixels [RIGHT], &rgb, 3);
+        default:
+            break;
+    }
+}
+
 void tick_leds (void)
 {
     uint8_t value = 0;
-    RGB_t rgb;
 
     memset (pixels, 0, 6);
 
@@ -117,7 +144,7 @@ void tick_leds (void)
             if (boop)
             {
                 BOOP_32_FRAMES;
-                hsv2rgb_rainbow (192, 0xff, (frame & 0x02) ? 0x18 : 0, &rgb);
+                eye_hsv_set (HUE_VIOLET, 0xff, (frame & 0x02) ? 0x18 : 0, EYE_BOTH);
             }
             else
             {
@@ -134,12 +161,8 @@ void tick_leds (void)
                     value = (0x20 - (frame - 0x20)) >> 1;
                 }
 
-                hsv2rgb_rainbow (192, 0xff, value + 1, &rgb);
+                eye_hsv_set (HUE_VIOLET, 0xff, value + 1, EYE_BOTH);
             }
-
-            memcpy (&pixels [LEFT],  &rgb, 3);
-            memcpy (&pixels [RIGHT], &rgb, 3);
-
             break;
 
         case 1:
@@ -148,17 +171,13 @@ void tick_leds (void)
             if (boop)
             {
                 BOOP_64_FRAMES;
-                hsv2rgb_rainbow ((frame << 2) + 64, 0xff, 0x18, &rgb);
-                memcpy (&pixels [LEFT],  &rgb, 3);
-                hsv2rgb_rainbow ((frame << 2) + 192, 0xff, 0x18, &rgb);
-                memcpy (&pixels [RIGHT], &rgb, 3);
+                eye_hsv_set ((frame << 2) +  64, 0xff, 0x18, EYE_LEFT);
+                eye_hsv_set ((frame << 2) + 192, 0xff, 0x18, EYE_RIGHT);
             }
             else
             {
                 CYCLE_256_FRAMES;
-                hsv2rgb_rainbow (frame, 0xff, 0x10, &rgb);
-                memcpy (&pixels [LEFT],  &rgb, 3);
-                memcpy (&pixels [RIGHT], &rgb, 3);
+                eye_hsv_set (frame, 0xff, 0x10, EYE_BOTH);
             }
             break;
 
@@ -173,12 +192,12 @@ void tick_leds (void)
                 if ((frame / 12) & 1)
                 {
                     /* Red */
-                    pixels [LEFT_R] = pixels [RIGHT_R] = (frame & 0x02) ? 0x10 : 0;
+                    eye_hsv_set (HUE_RED,  0xff, (frame & 0x02) ? 0x10 : 0x00, EYE_BOTH);
                 }
                 else
                 {
                     /* Blue */
-                    pixels [LEFT_B] = pixels [RIGHT_B] = (frame & 0x02) ? 0x10 : 0;
+                    eye_hsv_set (HUE_BLUE, 0xff, (frame & 0x02) ? 0x10 : 0x00, EYE_BOTH);
                 }
             }
             else
@@ -187,11 +206,13 @@ void tick_leds (void)
 
                 if (frame & 0x08)
                 {
-                    pixels [LEFT_R] = pixels [RIGHT_B] = 0x08;
+                    eye_hsv_set (HUE_RED,  0xff, 0x08, EYE_LEFT);
+                    eye_hsv_set (HUE_BLUE, 0xff, 0x08, EYE_RIGHT);
                 }
                 else
                 {
-                    pixels [LEFT_B] = pixels [RIGHT_R] = 0x08;
+                    eye_hsv_set (HUE_BLUE, 0xff, 0x08, EYE_LEFT);
+                    eye_hsv_set (HUE_RED,  0xff, 0x08, EYE_RIGHT);
                 }
             }
             break;
