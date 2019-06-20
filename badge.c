@@ -79,8 +79,9 @@ void boop_calibrate (void)
 }
 
 #define MODE_COUNT 3;
-static uint8_t  mode = 0;
+static uint8_t mode  = 0;
 static uint8_t frame = 0;
+static uint8_t boop  = 0;
 
 /*
  * Update the piezo for the current state.
@@ -93,8 +94,14 @@ void tick_sound (void)
 /*
  * Update the LED pattern for the current state.
  */
-#define FRAME_OF_32  (frame & 0x1f)
-#define FRAME_OF_192 (frame % 0xc0)
+#define CYCLE_32_FRAMES     frame = (frame & 0x1f)
+#define CYCLE_64_FRAMES     frame = (frame & 0x3f)
+#define CYCLE_192_FRAMES    frame = (frame % 0xc0)
+#define CYCLE_256_FRAMES
+#define BOOP_32_FRAMES      if (frame == 0x1f) { boop = false; frame = 0; }
+#define BOOP_64_FRAMES      if (frame == 0x3f) { boop = false; frame = 0; }
+#define BOOP_128_FRAMES     if (frame == 0x7f) { boop = false; frame = 0; }
+
 void tick_leds (void)
 {
     uint8_t value = 0;
@@ -104,42 +111,88 @@ void tick_leds (void)
 
     switch (mode)
     {
-        case 0: /* Mode 0: Purple fading */
-            frame = FRAME_OF_32;
-
-            if (frame < 0x10)
+        case 0:
+            /* Mode: Purple Fade
+             * Boop: Strobe */
+            if (boop)
             {
-                /* Ramp up */
-                value = frame;
+                BOOP_32_FRAMES;
+                hsv2rgb_rainbow (192, 0xff, (frame & 0x02) ? 0x18 : 0, &rgb);
             }
             else
             {
-                /* Ramp down */
-                value = 0x10 - (frame - 0x10);
+                CYCLE_64_FRAMES;
+
+                if (frame < 0x20)
+                {
+                    /* Ramp up */
+                    value = frame >> 1;
+                }
+                else
+                {
+                    /* Ramp down */
+                    value = (0x20 - (frame - 0x20)) >> 1;
+                }
+
+                hsv2rgb_rainbow (192, 0xff, value + 1, &rgb);
             }
 
-            hsv2rgb_rainbow (192, 0xff, value + 1, &rgb);
             memcpy (&pixels [LEFT],  &rgb, 3);
             memcpy (&pixels [RIGHT], &rgb, 3);
+
             break;
 
-        case 1: /* Mode 1: Rainbow */
-
-            hsv2rgb_rainbow (frame, 0xff, 0x10, &rgb);
-            memcpy (&pixels [LEFT],  &rgb, 3);
-            memcpy (&pixels [RIGHT], &rgb, 3);
+        case 1:
+            /* Mode: Rainbow
+             * Boop: Bright, fast, and crazy */
+            if (boop)
+            {
+                BOOP_64_FRAMES;
+                hsv2rgb_rainbow ((frame << 2) + 64, 0xff, 0x18, &rgb);
+                memcpy (&pixels [LEFT],  &rgb, 3);
+                hsv2rgb_rainbow ((frame << 2) + 192, 0xff, 0x18, &rgb);
+                memcpy (&pixels [RIGHT], &rgb, 3);
+            }
+            else
+            {
+                CYCLE_256_FRAMES;
+                hsv2rgb_rainbow (frame, 0xff, 0x10, &rgb);
+                memcpy (&pixels [LEFT],  &rgb, 3);
+                memcpy (&pixels [RIGHT], &rgb, 3);
+            }
             break;
 
-        case 2: /* Mode 2: Pirihimana */
+        case 2:
+            /* Mode: Pirihimana
+             * Boop: Pirihi-strobe */
         default:
-            frame = FRAME_OF_32;
-            if (frame & 0x08)
+            if (boop)
             {
-                pixels [LEFT_R] = pixels [RIGHT_B] = 0x08;
+                BOOP_128_FRAMES;
+
+                if ((frame / 12) & 1)
+                {
+                    /* Red */
+                    pixels [LEFT_R] = pixels [RIGHT_R] = (frame & 0x02) ? 0x10 : 0;
+                }
+                else
+                {
+                    /* Blue */
+                    pixels [LEFT_B] = pixels [RIGHT_B] = (frame & 0x02) ? 0x10 : 0;
+                }
             }
             else
             {
-                pixels [LEFT_B] = pixels [RIGHT_R] = 0x08;
+                CYCLE_32_FRAMES;
+
+                if (frame & 0x08)
+                {
+                    pixels [LEFT_R] = pixels [RIGHT_B] = 0x08;
+                }
+                else
+                {
+                    pixels [LEFT_B] = pixels [RIGHT_R] = 0x08;
+                }
             }
             break;
     }
@@ -154,19 +207,47 @@ void tick_leds (void)
  */
 void tick_state (void)
 {
+    static uint8_t boop_length = 0;
     static uint8_t boop_holdoff = 0;
 
+    /* Debounce the booper */
     if (boop_holdoff)
     {
         boop_holdoff--;
+        return;
     }
-    else
+
+    /* Check for a boop */
+    if (boop_sense () > 0x02)
     {
-        if (boop_sense () > 0x02)
+        boop_length++;
+
+        /* To keep the short-boop responsive, trigger it right away */
+        if (boop_length == 1)
+        {
+            boop = true;
+            frame = 0;
+        }
+
+        /* A long-boop should cancel the short-boop and instead cycle through modes */
+        if ((boop_length & 0x3f) == 0x20)
         {
             mode = (mode + 1) % MODE_COUNT;
-            boop_holdoff = 16;
+            boop = false;
+
+            /* Don't overflow, even for very long boops */
+            if (boop_length > 0x20)
+            {
+                boop_length = 0x20;
+            }
         }
+    }
+
+    /* The current boop has completed, start the hold-off timer */
+    else if (boop_length)
+    {
+        boop_holdoff = 16;
+        boop_length = 0;
     }
 }
 
