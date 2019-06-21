@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#include <avr/interrupt.h>
 #include <avr/io.h>
 #include <util/delay.h>
 
@@ -101,6 +103,7 @@ void tick_sound (void)
 #define BOOP_32_FRAMES      if (frame == 0x1f) { boop = false; frame = 0; }
 #define BOOP_64_FRAMES      if (frame == 0x3f) { boop = false; frame = 0; }
 #define BOOP_128_FRAMES     if (frame == 0x7f) { boop = false; frame = 0; }
+#define BOOP_256_FRAMES     if (frame == 0xff) { boop = false; frame = 0; }
 
 typedef enum Eye_e {
     EYE_LEFT,
@@ -143,7 +146,7 @@ void tick_leds (void)
              * Boop: Strobe */
             if (boop)
             {
-                BOOP_32_FRAMES;
+                BOOP_64_FRAMES;
                 eye_hsv_set (HUE_VIOLET, 0xff, (frame & 0x02) ? 0x18 : 0, EYE_BOTH);
             }
             else
@@ -170,7 +173,7 @@ void tick_leds (void)
              * Boop: Bright, fast, and crazy */
             if (boop)
             {
-                BOOP_64_FRAMES;
+                BOOP_128_FRAMES;
                 eye_hsv_set ((frame << 2) +  64, 0xff, 0x18, EYE_LEFT);
                 eye_hsv_set ((frame << 2) + 192, 0xff, 0x18, EYE_RIGHT);
             }
@@ -187,7 +190,7 @@ void tick_leds (void)
         default:
             if (boop)
             {
-                BOOP_128_FRAMES;
+                BOOP_256_FRAMES;
 
                 if ((frame / 12) & 1)
                 {
@@ -273,11 +276,9 @@ void tick_state (void)
 }
 
 /*
- * Timebase for running the badge.
- * Called every 25 ms.
- * TODO: Switch to an interrupt.
+ * Timebase for running the badge, called at 50 Hz.
  */
-void tick ()
+ISR (TIMER1_COMPA_vect)
 {
     tick_sound ();
     tick_leds ();
@@ -300,9 +301,16 @@ int main (void)
 
     boop_calibrate ();
 
+    /* Set up the 50 Hz tick interrupt */
+    TCCR1  = 0x8b; /* Reset at OCR1A, count at 7.8125 kHz */
+    OCR1A  = 0x9b; /* Count 0->194 for 50.08 Hz */
+    TIMSK  = 0x40; /* Output-compare interrupt enable */
+
+    /* Enable interrupts */
+    sei ();
+
     while (true)
     {
-        tick ();
-        _delay_ms (25);
+        _delay_ms (100);
     }
 }
