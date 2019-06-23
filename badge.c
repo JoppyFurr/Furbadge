@@ -33,8 +33,25 @@
 #define RIGHT_R 4
 #define RIGHT_B 5
 
-uint8_t pixels[6] = {0, 0, 0, 0, 0, 0};
+#define BIT_0 0x01
+#define BIT_1 0x02
+#define BIT_2 0x04
+#define BIT_3 0x08
+#define BIT_4 0x10
+#define BIT_5 0x20
+#define BIT_6 0x40
+#define BIT_7 0x80
 
+#define MODE_COUNT 3;
+
+/*
+ * State
+ */
+static uint8_t tick = 1;
+static uint8_t mode  = 0;
+static uint8_t frame = 0;
+static uint8_t boop  = 0;
+static uint8_t pixels[6] = {0, 0, 0, 0, 0, 0};
 static uint16_t boop_baseline = 0;
 
 /*
@@ -80,17 +97,89 @@ void boop_calibrate (void)
     boop_baseline = boop_sum / 10;
 }
 
-#define MODE_COUNT 3;
-static uint8_t mode  = 0;
-static uint8_t frame = 0;
-static uint8_t boop  = 0;
+typedef enum Volume_e {
+    VOLUME_OFF,
+    VOLUME_SOFT,
+    VOLUME_LOUD
+} Volume_t;
+
+uint8_t sound_toggle = 0x00;
+
+/*
+ * Called at twice the current sound frequency.
+ * Toggles the appropriate GPIO pins.
+ *
+ * TODO: To get decent sound, something needs to change.
+ *       -> Is it possible to do this in hardware with Timer1 with OC1B and ~OC1B? By swapping pins 7 and 3 in the schematic?
+ *       -> Can the led bit-bang be adjusted to leave the rest of PORTB alone?
+ *       -> Failing the above, choose short bursts of sound where issues won't be noticed.
+ */
+ISR (TIMER0_COMPA_vect)
+{
+    PORTB ^= sound_toggle;
+}
+
+/*
+ * Set the piezo output.
+ */
+void sound_set (uint16_t freq, Volume_t volume)
+{
+    if (volume == VOLUME_OFF)
+    {
+        TIMSK &= ~0x10; /* Timer0 Output Compare A interrupt disable */
+        PORTB &= ~(BIT_2 | BIT_3);
+        sound_toggle = 0;
+        return;
+    }
+
+    /* Count to */
+    OCR0A = 31250 / freq - 1;
+
+    switch (volume)
+    {
+        case VOLUME_LOUD:
+            /* Start the pins at opposite values */
+            PORTB &= ~BIT_2;
+            PORTB |=  BIT_3;
+            sound_toggle = BIT_2 | BIT_3;
+            break;
+
+        case VOLUME_SOFT:
+        default:
+            /* Start the pins at the same value */
+            PORTB &= ~(BIT_2 | BIT_3);
+            sound_toggle = BIT_2;
+            break;
+    }
+
+    TIMSK |= 0x10; /* Timer0 Output Compare A interrupt enable */
+}
 
 /*
  * Update the piezo for the current state.
  */
 void tick_sound (void)
 {
-    /* TODO */
+    static uint8_t beep_counter = 0;
+
+    /* Three second loop */
+    beep_counter = (beep_counter + 1) % 150;
+
+    /* 1.00 s: 200 ms soft beep */
+         if (beep_counter == 50) { sound_set (440, VOLUME_SOFT); }
+    else if (beep_counter == 60) { sound_set (440, VOLUME_OFF); }
+
+    /* 1.50 s: 200 ms soft beep */
+    else if (beep_counter == 75) { sound_set (880, VOLUME_SOFT); }
+    else if (beep_counter == 85) { sound_set (880, VOLUME_OFF); }
+
+    /* 2.00 s: 200 ms loud beep */
+    else if (beep_counter == 100) { sound_set (440, VOLUME_LOUD); }
+    else if (beep_counter == 110) { sound_set (440, VOLUME_OFF); }
+
+    /* 2.50 s: 200 ms loud beep */
+    else if (beep_counter == 125) { sound_set (880, VOLUME_LOUD); }
+    else if (beep_counter == 135) { sound_set (880, VOLUME_OFF); }
 }
 
 /*
@@ -276,13 +365,11 @@ void tick_state (void)
 }
 
 /*
- * Timebase for running the badge, called at 50 Hz.
+ * Sets the tick flag at 50 Hz.
  */
 ISR (TIMER1_COMPA_vect)
 {
-    tick_sound ();
-    tick_leds ();
-    tick_state ();
+    tick++;
 }
 
 /*
@@ -296,21 +383,40 @@ int main (void)
     /* Output: Boop driver */
     DDRB |= (1 << DDB1);
 
+    /* Output: Piezo */
+    DDRB |= (1 << DDB2) | (1 << DDB3);
+
     /* Output: LED Data */
     DDRB |= (1 << DDB4);
 
     boop_calibrate ();
 
-    /* Set up the 50 Hz tick interrupt */
+    /* Use Timer0 in CTC to time the piezo */
+    TCCR0A = 0x02; /* CTC mode */
+    TCCR0B = 0x04; /* Count at 31.25 kHz */
+
+    /* Use Timer1 for the 50 Hz tick interrupt */
     TCCR1  = 0x8b; /* Reset at OCR1A, count at 7.8125 kHz */
     OCR1A  = 0x9b; /* Count 0->194 for 50.08 Hz */
-    TIMSK  = 0x40; /* Output-compare interrupt enable */
+    TIMSK |= 0x40; /* Timer1 Output Compare A interrupt enable */
 
     /* Enable interrupts */
     sei ();
 
     while (true)
     {
-        _delay_ms (100);
+        /* Tick using a variable to avoid spending too much time in interrupt context */
+        /* This is done to try minimize sound glitches, but seems to result in LED glitches */
+        if (tick)
+        {
+            tick_sound ();
+            tick_leds ();
+            tick_state ();
+            tick--;
+        }
+        else
+        {
+            _delay_us (100);
+        }
     }
 }
