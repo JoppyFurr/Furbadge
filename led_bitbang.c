@@ -2,7 +2,7 @@
  * led_show based on github.com/adafruit/Adafruit_NeoPixel (LGPLv3)
  * Adafruit_NeoPixel.cpp
  *
- * Hard-coding for Port B, pin 4.
+ * Hard-coding for Port B, pin 2.
  */
 
 #include <stdint.h>
@@ -18,8 +18,8 @@ void led_show(uint8_t *data)
     volatile uint8_t n1 = 0; /* First bit out */
     volatile uint8_t n2 = 0; /* Next bit out */
 
-    hi = PORTB |  0x10;
-    lo = PORTB & ~0x10;
+    hi = PORTB |  (1 << PB2);
+    lo = PORTB & ~(1 << PB2);
 
     /* Set up the first bit out */
     n1 = (b & 0x80) ? hi : lo;

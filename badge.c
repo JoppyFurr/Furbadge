@@ -47,7 +47,6 @@
 /*
  * State
  */
-static uint8_t tick = 1;
 static uint8_t mode  = 0;
 static uint8_t frame = 0;
 static uint8_t boop  = 0;
@@ -103,56 +102,33 @@ typedef enum Volume_e {
     VOLUME_LOUD
 } Volume_t;
 
-uint8_t sound_toggle = 0x00;
-
-/*
- * Called at twice the current sound frequency.
- * Toggles the appropriate GPIO pins.
- *
- * TODO: To get decent sound, something needs to change.
- *       -> Is it possible to do this in hardware with Timer1 with OC1B and ~OC1B? By swapping pins 7 and 3 in the schematic?
- *       -> Can the led bit-bang be adjusted to leave the rest of PORTB alone?
- *       -> Failing the above, choose short bursts of sound where issues won't be noticed.
- */
-ISR (TIMER0_COMPA_vect)
-{
-    PORTB ^= sound_toggle;
-}
-
 /*
  * Set the piezo output.
  */
 void sound_set (uint16_t freq, Volume_t volume)
 {
-    if (volume == VOLUME_OFF)
-    {
-        TIMSK &= ~0x10; /* Timer0 Output Compare A interrupt disable */
-        PORTB &= ~(BIT_2 | BIT_3);
-        sound_toggle = 0;
-        return;
-    }
 
-    /* Count to */
-    OCR0A = 31250 / freq - 1;
+    OCR1C = 31250 / freq - 1; /* Count to */
+    OCR1B = OCR1C / 2; /* 50% duty cycle */
 
     switch (volume)
     {
         case VOLUME_LOUD:
-            /* Start the pins at opposite values */
-            PORTB &= ~BIT_2;
-            PORTB |=  BIT_3;
-            sound_toggle = BIT_2 | BIT_3;
+            /* Dual-pin PWM */
+            GTCCR = (GTCCR & ~((1 << COM1B1) | (1 << COM1B0))) | (1 << COM1B0);
             break;
 
         case VOLUME_SOFT:
+            /* Single-pin PWM */
+            GTCCR = (GTCCR & ~((1 << COM1B1) | (1 << COM1B0))) | (1 << COM1B1);
+            break;
+
+        case VOLUME_OFF:
         default:
-            /* Start the pins at the same value */
-            PORTB &= ~(BIT_2 | BIT_3);
-            sound_toggle = BIT_2;
+            /* Disable PWM */
+            GTCCR &= ~((1 << COM1B1) | (1 << COM1B0));
             break;
     }
-
-    TIMSK |= 0x10; /* Timer0 Output Compare A interrupt enable */
 }
 
 /*
@@ -367,9 +343,11 @@ void tick_state (void)
 /*
  * Sets the tick flag at 50 Hz.
  */
-ISR (TIMER1_COMPA_vect)
+ISR (TIMER0_COMPA_vect)
 {
-    tick++;
+    tick_sound ();
+    tick_leds ();
+    tick_state ();
 }
 
 /*
@@ -384,39 +362,30 @@ int main (void)
     DDRB |= (1 << DDB1);
 
     /* Output: Piezo */
-    DDRB |= (1 << DDB2) | (1 << DDB3);
+    DDRB |= (1 << DDB3) | (1 << DDB4);
 
     /* Output: LED Data */
-    DDRB |= (1 << DDB4);
+    DDRB |= (1 << DDB2);
 
     boop_calibrate ();
 
-    /* Use Timer0 in CTC to time the piezo */
-    TCCR0A = 0x02; /* CTC mode */
-    TCCR0B = 0x04; /* Count at 31.25 kHz */
+    /* Use Timer0 for the 50 Hz tick interrupt */
+    TCCR0A = 0x02; /* CTC Mode */
+    TCCR0B = 0x05; /* Prescale clock down to 7.8125 kHz */
+    OCR0A  = 0x9b; /* Count 0->155 giving 50.08 Hz */
+    TIMSK |= 0x10; /* Timer0 Output Compare A interrupt enable */
 
-    /* Use Timer1 for the 50 Hz tick interrupt */
-    TCCR1  = 0x8b; /* Reset at OCR1A, count at 7.8125 kHz */
-    OCR1A  = 0x9b; /* Count 0->194 for 50.08 Hz */
-    TIMSK |= 0x40; /* Timer1 Output Compare A interrupt enable */
+    /* Use Timer1 in PWM to time the piezo */
+    TCCR1  = 0x09; /* Count at 31.25 kHz */
+    GTCCR  = 0x40; /* Enable PWM B, outputs off */
+    OCR1C  = 0x46; /* Default 440 Hz */
+    OCR1B  = 0x23; /* Default 50% duty cycle */
 
     /* Enable interrupts */
     sei ();
 
     while (true)
     {
-        /* Tick using a variable to avoid spending too much time in interrupt context */
-        /* This is done to try minimize sound glitches, but seems to result in LED glitches */
-        if (tick)
-        {
-            tick_sound ();
-            tick_leds ();
-            tick_state ();
-            tick--;
-        }
-        else
-        {
-            _delay_us (100);
-        }
+        _delay_ms (10);
     }
 }
