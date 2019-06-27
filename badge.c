@@ -131,31 +131,101 @@ void sound_set (uint16_t freq, Volume_t volume)
     }
 }
 
+typedef struct Sound_s
+{
+    uint16_t freq;
+    Volume_t volume;
+    uint16_t duration_ms;
+} Sound_t;
+
+Sound_t sound_mode_change [] = {
+    { 440, VOLUME_SOFT, 100 },
+    {   0, VOLUME_OFF,  100 },
+    { 880, VOLUME_SOFT, 100 },
+    { }
+};
+
+/* TODO: Support for frequency slopes */
+Sound_t sound_siren [] = {
+    /* Down */
+    { 1500, VOLUME_LOUD, 140 },
+    { 1450, VOLUME_LOUD, 140 },
+    { 1400, VOLUME_LOUD, 140 },
+    { 1350, VOLUME_LOUD, 140 },
+    { 1300, VOLUME_LOUD, 140 },
+    { 1250, VOLUME_LOUD, 140 },
+    { 1200, VOLUME_LOUD, 140 },
+    { 1150, VOLUME_LOUD, 140 },
+    { 1100, VOLUME_LOUD, 140 },
+    { 1050, VOLUME_LOUD, 140 },
+    { 1000, VOLUME_LOUD, 140 },
+    {  950, VOLUME_LOUD, 140 },
+    {  900, VOLUME_LOUD, 140 },
+    {  850, VOLUME_LOUD, 140 },
+    {  800, VOLUME_LOUD, 140 },
+    {  750, VOLUME_LOUD, 140 },
+    {  700, VOLUME_LOUD, 140 },
+    {  650, VOLUME_LOUD, 140 },
+    {  600, VOLUME_LOUD, 140 },
+    {  525, VOLUME_LOUD, 140 },
+
+    /* Up */
+    {  600, VOLUME_LOUD, 140 },
+    {  650, VOLUME_LOUD, 140 },
+    {  700, VOLUME_LOUD, 140 },
+    {  750, VOLUME_LOUD, 140 },
+    {  800, VOLUME_LOUD, 140 },
+    {  850, VOLUME_LOUD, 140 },
+    {  900, VOLUME_LOUD, 140 },
+    {  950, VOLUME_LOUD, 140 },
+    { 1000, VOLUME_LOUD, 140 },
+    { 1050, VOLUME_LOUD, 140 },
+    { 1100, VOLUME_LOUD, 140 },
+    { 1150, VOLUME_LOUD, 140 },
+    { 1200, VOLUME_LOUD, 140 },
+    { 1250, VOLUME_LOUD, 140 },
+    { 1300, VOLUME_LOUD, 140 },
+    { 1350, VOLUME_LOUD, 140 },
+    { 1400, VOLUME_LOUD, 140 },
+    { 1450, VOLUME_LOUD, 140 },
+    { 1500, VOLUME_LOUD, 140 },
+
+    { }
+};
+
+Sound_t *play_sound = NULL;
+
 /*
  * Update the piezo for the current state.
  */
 void tick_sound (void)
 {
-    static uint8_t beep_counter = 0;
+    static uint8_t update_delay = 0;
 
-    /* Three second loop */
-    beep_counter = (beep_counter + 1) % 150;
+    if (play_sound == NULL)
+    {
+        return;
+    }
 
-    /* 1.00 s: 200 ms soft beep */
-         if (beep_counter == 50) { sound_set (440, VOLUME_SOFT); }
-    else if (beep_counter == 60) { sound_set (440, VOLUME_OFF); }
+    if (update_delay == 0)
+    {
+        sound_set (play_sound->freq, play_sound->volume);
 
-    /* 1.50 s: 200 ms soft beep */
-    else if (beep_counter == 75) { sound_set (880, VOLUME_SOFT); }
-    else if (beep_counter == 85) { sound_set (880, VOLUME_OFF); }
+        if (play_sound->duration_ms)
+        {
+            update_delay = play_sound->duration_ms / 20;
+            play_sound++;
+        }
+        else
+        {
+            play_sound = NULL;
+        }
+    }
 
-    /* 2.00 s: 200 ms loud beep */
-    else if (beep_counter == 100) { sound_set (440, VOLUME_LOUD); }
-    else if (beep_counter == 110) { sound_set (440, VOLUME_OFF); }
-
-    /* 2.50 s: 200 ms loud beep */
-    else if (beep_counter == 125) { sound_set (880, VOLUME_LOUD); }
-    else if (beep_counter == 135) { sound_set (880, VOLUME_OFF); }
+    if (update_delay)
+    {
+        update_delay--;
+    }
 }
 
 /*
@@ -257,6 +327,11 @@ void tick_leds (void)
             {
                 BOOP_256_FRAMES;
 
+                if (boop == true && frame == 0)
+                {
+                    play_sound = sound_siren;
+                }
+
                 if ((frame / 12) & 1)
                 {
                     /* Red */
@@ -329,6 +404,9 @@ void tick_state (void)
             {
                 boop_length = 0x20;
             }
+
+            /* Beep */
+            play_sound = sound_mode_change;
         }
     }
 
