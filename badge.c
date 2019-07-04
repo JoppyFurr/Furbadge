@@ -13,6 +13,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <avr/interrupt.h>
@@ -42,7 +43,7 @@
 #define BIT_6 0x40
 #define BIT_7 0x80
 
-#define MODE_COUNT 3;
+#define MODE_COUNT 4
 
 /*
  * State
@@ -146,6 +147,7 @@ Sound_t sound_mode_change [] = {
 };
 
 /* TODO: Support for frequency slopes */
+/* TODO: Use PROGMEM, as there is very little ram */
 Sound_t sound_siren [] = {
     /* Down */
     { 1500, VOLUME_LOUD, 140 },
@@ -268,38 +270,33 @@ void eye_hsv_set (uint8_t hue, uint8_t sat, uint8_t val, Eye_t eye)
     }
 }
 
+uint8_t triangle (uint8_t range, uint8_t period, uint8_t frame)
+{
+    uint16_t half_period = period >> 1;
+
+    return abs ((frame % period) - half_period) * range / half_period;
+}
+
 void tick_leds (void)
 {
-    uint8_t value = 0;
-
     memset (pixels, 0, 6);
 
     switch (mode)
     {
         case 0:
-            /* Mode: Purple Fade
+            /* Mode: Purple & Pink
              * Boop: Strobe */
             if (boop)
             {
                 BOOP_64_FRAMES;
-                eye_hsv_set (HUE_VIOLET, 0xff, (frame & 0x02) ? 0x18 : 0, EYE_BOTH);
+                eye_hsv_set ((frame & 0x04) ? HUE_VIOLET : HUE_PINK, 0xff, (frame & 0x02) ? 0x18 : 0, EYE_BOTH);
             }
             else
             {
                 CYCLE_64_FRAMES;
 
-                if (frame < 0x20)
-                {
-                    /* Ramp up */
-                    value = frame >> 1;
-                }
-                else
-                {
-                    /* Ramp down */
-                    value = (0x20 - (frame - 0x20)) >> 1;
-                }
-
-                eye_hsv_set (HUE_VIOLET, 0xff, value + 1, EYE_BOTH);
+                eye_hsv_set (HUE_VIOLET + triangle (32, 64, frame), 0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (HUE_VIOLET + triangle (32, 64, frame + 32), 0xff, 0x10, EYE_RIGHT);
             }
             break;
 
@@ -320,6 +317,23 @@ void tick_leds (void)
             break;
 
         case 2:
+            /* Mode: Rainbow-crossed
+             * Boop: Bright, fast, and crazy */
+            if (boop)
+            {
+                BOOP_128_FRAMES;
+                eye_hsv_set ((frame << 2) +  64, 0xff, 0x18, EYE_LEFT);
+                eye_hsv_set ((frame << 2) + 192, 0xff, 0x18, EYE_RIGHT);
+            }
+            else
+            {
+                CYCLE_256_FRAMES;
+                eye_hsv_set (frame,       0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (frame + 128, 0xff, 0x10, EYE_RIGHT);
+            }
+            break;
+
+        case 3:
             /* Mode: Pirihimana
              * Boop: Pirihi-strobe */
         default:
