@@ -312,7 +312,7 @@ void tick_leds (void)
             else
             {
                 CYCLE_256_FRAMES;
-                eye_hsv_set (frame, 0xff, 0x10, EYE_BOTH);
+                eye_hsv_set ((frame << 1), 0xff, 0x10, EYE_BOTH);
             }
             break;
 
@@ -328,8 +328,8 @@ void tick_leds (void)
             else
             {
                 CYCLE_256_FRAMES;
-                eye_hsv_set (frame,       0xff, 0x10, EYE_LEFT);
-                eye_hsv_set (frame + 128, 0xff, 0x10, EYE_RIGHT);
+                eye_hsv_set ((frame << 1),       0xff, 0x10, EYE_LEFT);
+                eye_hsv_set ((frame << 1) + 128, 0xff, 0x10, EYE_RIGHT);
             }
             break;
 
