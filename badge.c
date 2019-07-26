@@ -146,6 +146,7 @@ Sound_t sound_mode_change [] = {
     { }
 };
 
+#if 0
 /* TODO: Support for frequency slopes */
 /* TODO: Use PROGMEM, as there is very little ram */
 Sound_t sound_siren [] = {
@@ -194,6 +195,7 @@ Sound_t sound_siren [] = {
 
     { }
 };
+#endif
 
 Sound_t *play_sound = NULL;
 
@@ -341,10 +343,12 @@ void tick_leds (void)
             {
                 BOOP_256_FRAMES;
 
+#if 0
                 if (boop == true && frame == 0)
                 {
                     play_sound = sound_siren;
                 }
+#endif
 
                 if ((frame / 12) & 1)
                 {
