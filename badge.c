@@ -18,6 +18,7 @@
 
 #include <avr/interrupt.h>
 #include <avr/io.h>
+#include <avr/pgmspace.h>
 #include <util/delay.h>
 
 #include "rgb.h"
@@ -43,7 +44,7 @@
 #define BIT_6 0x40
 #define BIT_7 0x80
 
-#define MODE_COUNT 4
+#define MODE_COUNT 8
 
 /*
  * State
@@ -135,69 +136,75 @@ void sound_set (uint16_t freq, Volume_t volume)
 typedef struct Sound_s
 {
     uint16_t freq;
-    Volume_t volume;
     uint16_t duration_ms;
+    uint8_t volume;
+    int8_t freq_shift;
 } Sound_t;
 
-Sound_t sound_mode_change [] = {
-    { 440, VOLUME_SOFT, 100 },
-    {   0, VOLUME_OFF,  100 },
-    { 880, VOLUME_SOFT, 100 },
+const Sound_t sound_mode_change [] PROGMEM = {
+    { 440, 100, VOLUME_SOFT, 0 },
+    {   0, 100, VOLUME_OFF,  0 },
+    { 880, 100, VOLUME_SOFT, 0 },
     { }
 };
 
-#if 0
-/* TODO: Support for frequency slopes */
-/* TODO: Use PROGMEM, as there is very little ram */
-Sound_t sound_siren [] = {
-    /* Down */
-    { 1500, VOLUME_LOUD, 140 },
-    { 1450, VOLUME_LOUD, 140 },
-    { 1400, VOLUME_LOUD, 140 },
-    { 1350, VOLUME_LOUD, 140 },
-    { 1300, VOLUME_LOUD, 140 },
-    { 1250, VOLUME_LOUD, 140 },
-    { 1200, VOLUME_LOUD, 140 },
-    { 1150, VOLUME_LOUD, 140 },
-    { 1100, VOLUME_LOUD, 140 },
-    { 1050, VOLUME_LOUD, 140 },
-    { 1000, VOLUME_LOUD, 140 },
-    {  950, VOLUME_LOUD, 140 },
-    {  900, VOLUME_LOUD, 140 },
-    {  850, VOLUME_LOUD, 140 },
-    {  800, VOLUME_LOUD, 140 },
-    {  750, VOLUME_LOUD, 140 },
-    {  700, VOLUME_LOUD, 140 },
-    {  650, VOLUME_LOUD, 140 },
-    {  600, VOLUME_LOUD, 140 },
-    {  525, VOLUME_LOUD, 140 },
-
-    /* Up */
-    {  600, VOLUME_LOUD, 140 },
-    {  650, VOLUME_LOUD, 140 },
-    {  700, VOLUME_LOUD, 140 },
-    {  750, VOLUME_LOUD, 140 },
-    {  800, VOLUME_LOUD, 140 },
-    {  850, VOLUME_LOUD, 140 },
-    {  900, VOLUME_LOUD, 140 },
-    {  950, VOLUME_LOUD, 140 },
-    { 1000, VOLUME_LOUD, 140 },
-    { 1050, VOLUME_LOUD, 140 },
-    { 1100, VOLUME_LOUD, 140 },
-    { 1150, VOLUME_LOUD, 140 },
-    { 1200, VOLUME_LOUD, 140 },
-    { 1250, VOLUME_LOUD, 140 },
-    { 1300, VOLUME_LOUD, 140 },
-    { 1350, VOLUME_LOUD, 140 },
-    { 1400, VOLUME_LOUD, 140 },
-    { 1450, VOLUME_LOUD, 140 },
-    { 1500, VOLUME_LOUD, 140 },
-
+const Sound_t sound_boop_siren [] PROGMEM = {
+    { 1500, 800, VOLUME_LOUD, -25 },
+    {  500, 800, VOLUME_LOUD,  25 },
+    { 1500, 800, VOLUME_LOUD, -25 },
+    {  500, 800, VOLUME_LOUD,  25 },
+    { 1500, 800, VOLUME_LOUD, -25 },
     { }
 };
-#endif
 
-Sound_t *play_sound = NULL;
+#define BOOP_COUNT 3
+
+const Sound_t sound_boop_0 [] PROGMEM = {
+    { 440, 300,  VOLUME_LOUD,  100 },
+    { 1940, 100, VOLUME_LOUD, -100 },
+    { }
+};
+
+const Sound_t sound_boop_1 [] PROGMEM = {
+    { 440, 200, VOLUME_LOUD, 100 },
+    {   0,  20, VOLUME_OFF,  0 },
+    { 440, 200, VOLUME_LOUD, 100 },
+    { }
+};
+
+const Sound_t sound_boop_2 [] PROGMEM = {
+    { 440,  60, VOLUME_LOUD, 0 },
+    {   0,  40, VOLUME_OFF,  0 },
+    { 440,  60, VOLUME_LOUD, 0 },
+    {   0,  40, VOLUME_OFF,  0 },
+    { 440, 200, VOLUME_LOUD, 100 },
+    { }
+};
+
+const Sound_t *get_next_boop_sound (void)
+{
+    static uint8_t sound_index = 0;
+    const Sound_t *sound = NULL;
+
+    switch (sound_index)
+    {
+        case 0:
+            sound = sound_boop_0;
+            break;
+        case 1:
+            sound = sound_boop_1;
+            break;
+        case 2:
+        default:
+            sound = sound_boop_2;
+            break;
+    }
+
+    sound_index = (sound_index + 1) % BOOP_COUNT;
+    return sound;
+}
+
+const Sound_t *play_sound = NULL;
 
 /*
  * Update the piezo for the current state.
@@ -206,6 +213,10 @@ void tick_sound (void)
 {
     static uint8_t update_delay = 0;
 
+    static uint8_t volume = 0;
+    static uint16_t frequency = 0;
+    static int8_t freq_shift = 0;
+
     if (play_sound == NULL)
     {
         return;
@@ -213,21 +224,31 @@ void tick_sound (void)
 
     if (update_delay == 0)
     {
-        sound_set (play_sound->freq, play_sound->volume);
+        frequency = pgm_read_word (&(play_sound->freq));
+        volume = pgm_read_byte (&(play_sound->volume));
+        freq_shift = pgm_read_byte (&(play_sound->freq_shift));
 
-        if (play_sound->duration_ms)
+        sound_set (frequency, volume);
+
+        if (pgm_read_byte (&(play_sound->duration_ms)))
         {
-            update_delay = play_sound->duration_ms / 20;
+            update_delay = pgm_read_word (&(play_sound->duration_ms)) / 20;
             play_sound++;
         }
         else
         {
             play_sound = NULL;
+            return;
         }
     }
 
     if (update_delay)
     {
+        if (freq_shift)
+        {
+            frequency += freq_shift;
+            sound_set (frequency, volume);
+        }
         update_delay--;
     }
 }
@@ -288,9 +309,16 @@ void tick_leds (void)
         case 0:
             /* Mode: Purple & Pink
              * Boop: Strobe */
+
             if (boop)
             {
-                BOOP_64_FRAMES;
+                BOOP_32_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
                 eye_hsv_set ((frame & 0x04) ? HUE_VIOLET : HUE_PINK, 0xff, (frame & 0x02) ? 0x18 : 0, EYE_BOTH);
             }
             else
@@ -303,11 +331,117 @@ void tick_leds (void)
             break;
 
         case 1:
+            /* Mode: Orange
+             * Boop: Strobe */
+
+            if (boop)
+            {
+                BOOP_32_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
+                eye_hsv_set (HUE_ORANGE, 0xff, (frame & 0x04) ? 0x00 : 0x18, EYE_LEFT);
+                eye_hsv_set (HUE_ORANGE, 0xff, (frame & 0x04) ? 0x18 : 0x00, EYE_RIGHT);
+            }
+            else
+            {
+                CYCLE_64_FRAMES;
+
+                eye_hsv_set (HUE_ORANGE - 0x10 + triangle (32, 64, frame), 0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (HUE_ORANGE - 0x10 + triangle (32, 64, frame + 32), 0xff, 0x10, EYE_RIGHT);
+            }
+            break;
+
+        case 2:
+            /* Mode: Red
+             * Boop: Strobe */
+
+            if (boop)
+            {
+                BOOP_32_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
+                eye_hsv_set (HUE_RED, 0xff, (frame & 0x04) ? 0x00 : 0x18, EYE_LEFT);
+                eye_hsv_set (HUE_RED, 0xff, (frame & 0x04) ? 0x18 : 0x00, EYE_RIGHT);
+            }
+            else
+            {
+                CYCLE_64_FRAMES;
+
+                eye_hsv_set (HUE_RED - 0x10 + triangle (32, 64, frame), 0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (HUE_RED - 0x10 + triangle (32, 64, frame + 32), 0xff, 0x10, EYE_RIGHT);
+            }
+            break;
+
+        case 3:
+            /* Mode: Green
+             * Boop: Strobe */
+
+            if (boop)
+            {
+                BOOP_32_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
+                eye_hsv_set (HUE_GREEN, 0xff, (frame & 0x04) ? 0x00 : 0x18, EYE_LEFT);
+                eye_hsv_set (HUE_GREEN, 0xff, (frame & 0x04) ? 0x18 : 0x00, EYE_RIGHT);
+            }
+            else
+            {
+                CYCLE_64_FRAMES;
+
+                eye_hsv_set (HUE_GREEN - 0x10 + triangle (32, 64, frame), 0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (HUE_GREEN - 0x10 + triangle (32, 64, frame + 32), 0xff, 0x10, EYE_RIGHT);
+            }
+            break;
+
+        case 4:
+            /* Mode: Blue
+             * Boop: Strobe */
+
+            if (boop)
+            {
+                BOOP_32_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
+                eye_hsv_set (HUE_AQUA + 0x10, 0xff, (frame & 0x04) ? 0x00 : 0x18, EYE_LEFT);
+                eye_hsv_set (HUE_AQUA + 0x10, 0xff, (frame & 0x04) ? 0x18 : 0x00, EYE_RIGHT);
+            }
+            else
+            {
+                CYCLE_64_FRAMES;
+
+                eye_hsv_set (HUE_AQUA - 0x10 + triangle (32, 64, frame), 0xff, 0x10, EYE_LEFT);
+                eye_hsv_set (HUE_AQUA - 0x10 + triangle (32, 64, frame + 32), 0xff, 0x10, EYE_RIGHT);
+            }
+            break;
+
+        case 5:
             /* Mode: Rainbow
              * Boop: Bright, fast, and crazy */
             if (boop)
             {
                 BOOP_128_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
                 eye_hsv_set ((frame << 2) +  64, 0xff, 0x18, EYE_LEFT);
                 eye_hsv_set ((frame << 2) + 192, 0xff, 0x18, EYE_RIGHT);
             }
@@ -318,12 +452,18 @@ void tick_leds (void)
             }
             break;
 
-        case 2:
+        case 6:
             /* Mode: Rainbow-crossed
              * Boop: Bright, fast, and crazy */
             if (boop)
             {
                 BOOP_128_FRAMES;
+
+                if (boop && frame == 0)
+                {
+                    play_sound = get_next_boop_sound ();
+                }
+
                 eye_hsv_set ((frame << 2) +  64, 0xff, 0x18, EYE_LEFT);
                 eye_hsv_set ((frame << 2) + 192, 0xff, 0x18, EYE_RIGHT);
             }
@@ -335,7 +475,7 @@ void tick_leds (void)
             }
             break;
 
-        case 3:
+        case 7:
             /* Mode: Pirihimana
              * Boop: Pirihi-strobe */
         default:
@@ -343,12 +483,10 @@ void tick_leds (void)
             {
                 BOOP_256_FRAMES;
 
-#if 0
-                if (boop == true && frame == 0)
+                if (boop && frame == 0)
                 {
-                    play_sound = sound_siren;
+                    play_sound = sound_boop_siren;
                 }
-#endif
 
                 if ((frame / 12) & 1)
                 {
