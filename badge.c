@@ -1,14 +1,8 @@
 /*
- * Port B, pin 4
+ * Furbadge
  *
- * Timing:
- *  0: 0.4 µs high, 0.85 µs low
- *  1: 0.8 µs high, 0.45 µs high
- *  50us between updates.
- *
- *  Implementation: Borrow the hand-tuned assembler from Adafruit_NeoPixel.cpp
+ * Code for a furry PCB badge built around the tiny45 and WS2812 LEDs
  */
-
 #define F_CPU 8000000UL
 
 #include <stdbool.h>
